@@ -1,0 +1,298 @@
+from flask import Flask, request, render_template, redirect, url_for
+#from tkinter import filedialog
+from random import randrange, getrandbits
+import random
+import requests
+import ast
+import time
+import socket
+import json
+from _thread import *
+import threading
+import sys,errno
+import matplotlib.pyplot as plt
+from random import randrange, getrandbits
+import random
+import io
+import re
+import os
+import operator
+from PIL import Image, UnidentifiedImageError
+import PIL
+from matplotlib import pyplot as plt
+from io import BytesIO
+from kafka import KafkaConsumer
+import base64
+import numpy as np
+import cv2
+import numpy
+from sympy import isprime, gcd
+
+print_lock=threading.Lock()
+
+app = Flask(__name__)
+UPLOAD_FOLDER="static/image_to_decrypt/"
+app.config['UPLOAD_FOLDER']=UPLOAD_FOLDER
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+def generate_ChallengeResponse():
+    a=random.randint(1,100)
+    b=random.randint(1,100)
+    c=random.randint(1,100)
+    challenge_response=[a,b,c]
+    return challenge_response
+#=== Function Return Answer Modulus ===#
+def power1(x,y,m):
+    ans=1
+    while(y>0):
+        if(y%2==1):
+            ans=(ans*x)%m
+        y=y//2
+        x=(x*x)%m
+    return ans
+#=== Function Return Prime Number P and Q ===#
+def generatePrime():
+    p = random.randrange(128,1024)
+    while (not(isprime(p))):
+        p = random.randrange(128,1024)
+
+    q = random.randrange(128,1024)
+    while (p == q or not(isprime(q))):
+        q = random.randrange(128,1024)
+    return p,q
+
+@app.route('/keyauthenticationexchange')
+def keyauthenticationexchange():
+    HOST = "192.168.198.133"
+    PORT = 65432
+    s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print("Socket Created")
+    s.bind((HOST, PORT))
+    print("Bind Complete")
+    s.listen(5)
+    print("Socket Now Listening")
+    #=== Value Random Prime Number P adn Q
+    #row1= 1000003
+    #phi = [0 for x1 in range (row1)]
+    #occ = [0 for x1 in range(row1)]
+    #primes = []
+    #phi[1] = 1
+    #for i in range(2,1000001):
+    #    if(phi[i] == 0):
+    #        phi[i] = i-1
+    #        primes.append(i)
+    #        for j in range (2*i,1000001,i):
+    #            if(occ[j] == 0):
+    #                occ[j] = 1
+    #                phi[j] = j
+    #            phi[j] = (phi[j]*(i-1))//i
+    #p = primes[random.randrange(1,167)]
+    #q = primes[random.randrange(1,167)]
+    start_time_key=time.time()
+    p, q = generatePrime()
+    print("Prime Number P dan Q, Different P and Q values")
+    print("Nilai P: ",p)
+    print("Nilai Q: ",q)
+
+    #=== Value N=P*Q and Euler Totient = (P-1)(Q-1) ===#
+    n = p*q
+    m = (p-1)*(q-1)
+    #mod = n
+    #phin1 = phi[n]
+    #phin2 = phi[phin1]
+    #=== Value E and D ===#
+    #e = primes[random.randrange(1,9000)]
+    #mod1 = phin1
+    #d = power1(e,phin2-1,mod1)
+    e = random.randrange(1,m)
+    while (gcd(e,m) != 1):
+        e = random.randrange(1,m)
+    k = 1
+    while ((1+m*k) % e != 0):
+        k += 1
+    d = int((1+m*k)/e)
+    end_time_key=time.time()
+    interval=end_time_key-start_time_key
+    execution_time=interval/60
+    print("Value N=(p*Q): ",n)
+    print("Value E: ",e)
+    PublicKey=[e,n]
+    print("Public Key (E, N): ",PublicKey)
+    print("Nilai D: ",d)
+    PrivateKey=[d,n]
+    print("Private Key (D, N): ",PrivateKey)
+    print("\n")
+    #while True:
+    conn, addr = s.accept()
+    CR=generate_ChallengeResponse()
+    print("CR:",CR)
+    a=CR[0]
+    b=CR[1]
+    c=CR[2]
+    Value_CR=a|b*c
+    print("Challenge Response: ",Value_CR)
+    data=json.dumps({"a":CR})
+    #print(data)
+    conn.send(data.encode())
+    data=[CR,Value_CR]
+
+    hasil = conn.recv(1024)
+    hasil = json.loads(hasil.decode())
+    receive=hasil.get("a")
+    print("Receive: ",receive)
+    print("Receive Challenge Response: ",Value_CR)
+    value1=float(Value_CR)
+    value2=float(receive)
+    if value1 == value2:
+        berhasil=1
+        print(str(receive)+"  ==  "+str(Value_CR))
+        print("Authentication Success")
+        respon="Authentication Succes"
+        print("Berhasil:",berhasil)
+        data=json.dumps({"a":berhasil})
+        conn.send(data.encode())
+        #respon status terima
+        status = conn.recv(1024)
+        status = json.loads(status.decode())
+        status_receive=status.get("c")
+        print("status:",status_receive)
+        stat="OK"
+        if status_receive == stat:
+            print("sukses")
+            PK=json.dumps({"b":PublicKey})
+            conn.send(PK.encode())
+            print("Send Public Key: ",PublicKey)
+            conn.close()
+    else:
+        gagal=0
+        print(str(receive)+"  !=  "+str(Value_CR))
+        respon="Autentication Failure"
+        print("Authentication Failure")
+        print("Gagal: ",gagal)
+        data=json.dumps({"a":gagal})
+        conn.send(data.encode())
+        conn.close()
+    datakeyauthenticationexchange=[p,q,n,m,e,PublicKey,d,PrivateKey,receive,Value_CR,respon,execution_time]
+    PR_K=[d,n]
+    return render_template('keyauthenticationexchange.html', PR_K=PR_K,datakeyauthenticationexchange=datakeyauthenticationexchange)
+    s.close()
+
+@app.route('/subscribe_kafka/<PR_K>')
+def subscribe_kafka(PR_K):
+    consumer=KafkaConsumer('senin', 
+bootstrap_servers='192.168.198.132:9092',
+api_version=(0,10,1),
+max_partition_fetch_bytes=104857600,
+auto_offset_reset='latest')
+    for message in consumer:
+        if message is None:
+            continue
+        else:
+            a=json.loads(message.value)
+            ukuran=a[0]
+            sending=a[1]
+            print(ukuran)
+            data=PR_K
+            print(data)
+            receive=np.array(sending)
+            print(type(receive))
+            print("data receive: ",receive) 
+            pathtxt=os.path.join(app.config['UPLOAD_FOLDER'],'encrypt.txt')
+            file = open(pathtxt, "w+")
+            #file=open("receive.txt","w+")
+            file.write(sending)
+            file.close()
+            testing=[ukuran,PR_K]
+            return redirect(url_for('decryption',testing=testing))
+@app.route('/decryption/<testing>')
+def decryption(testing):
+    start_time=time.time()
+    data=testing
+    final=re.findall('[0-9]+',data)
+    row=int(final[0])
+    col=int(final[1])
+    D=int(final[2])
+    N=int(final[3])
+    print(row,col,D,N)
+    print("data decryption:",final)
+    pathtxt=os.path.join(app.config['UPLOAD_FOLDER'],'encrypt.txt')
+    file = open(pathtxt, "r")
+    content = file.read()
+    print("Type Content :",type(content))
+    #=== Convert string to List
+    res = ast.literal_eval(content)
+    #=== Proses Save Matrik Enkripsi ke Image RGB ===#
+    encrypt = numpy.array(res,dtype = numpy.uint8)
+    encrypt_img = Image.fromarray(encrypt,"RGB")
+    encrypt_img.save(os.path.join(app.config['UPLOAD_FOLDER'],'image_encrypt.jpg'))
+    print("encrypt matrix:",res)
+    #res=np.fromstring(content,sep='').reshape(content)
+    dec = [[0 for x in range(row)] for y in range(col)]
+    print("res:",type(res))
+    for i in range(col):
+        for j in range(row):
+            r,g,b=res[i][j]
+            M1=power1(r,D,N)-10
+            M2=power1(g,D,N)-10
+            M3=power1(b,D,N)-10
+            dec[i][j]=[M1,M2,M3]
+    #=== Save Matrix to File ===#
+    pathtxtdecrypt=os.path.join(app.config['UPLOAD_FOLDER'],'decrypt.txt')
+    file = open(pathtxtdecrypt, "w+")
+    content = str(dec)
+    file.write(content)
+    file.close()
+
+    #=== Proses Save Matrik Enkripsi ke Image RGB ===#
+    img = numpy.array(dec,dtype = numpy.uint8)
+    img1 = Image.fromarray(img,"RGB")
+    img1.save(os.path.join(app.config['UPLOAD_FOLDER'],'image_decrypt.jpg'))
+    #img1.save('Decrypt.bmp')
+    end_time=time.time()
+    interval=end_time-start_time
+    execution_time=interval/60
+    #=== Deskripsi Image Encryption ===#
+    filename_enc = "image_encrypt.jpg"
+    image_res = [row,col]
+    path_file_e=app.config['UPLOAD_FOLDER']
+    input_file_e=filename_enc
+    size_e=os.stat(path_file_e+input_file_e).st_size
+    def convert_bytes_e(size_e):
+        for x in ['bytes', 'KB', 'MB', 'GB', 'TB']:
+            if size_e < 1024.0:
+                return "%3.1f %s" % (size_e, x)
+            size_e /= 1024.0
+        return size_e
+    image_size_e=convert_bytes_e(size_e)
+    #=== Deskripsi Image Decryption ===#
+    filename_dec="image_decrypt.jpg"
+    path_file_d=app.config['UPLOAD_FOLDER']
+    input_file_d=filename_dec
+    size_d=os.stat(path_file_d+input_file_d).st_size
+    def convert_bytes_d(size_d):
+        for x in ['bytes', 'KB', 'MB', 'GB', 'TB']:
+            if size_d < 1024.0:
+                return "%3.1f %s" % (size_d, x)
+            size_d /= 1024.0
+        return size_d
+    image_size_d=convert_bytes_d(size_d)
+    description_enc=[filename_enc,image_size_e]
+    description_dec=[filename_dec,image_size_d,execution_time]
+    return render_template("Decryption.html",image_res=image_res,description_enc=description_enc,description_dec=description_dec)
+@app.route('/histogram')
+def histogram():
+    #encrypt="image_encrypt.jpg"
+    decrypt="image_decrypt.jpg"
+    #path_encrypt=app.config['UPLOAD_FOLDER']+encrypt
+    path_decrypt=app.config['UPLOAD_FOLDER']+decrypt
+    #img_encrypt=cv2.imread(path_encrypt)
+    #histogram_encrypt=cv2.calcHist([img_encrypt],[0],None,[256],[0,256])
+    img_decrypt=cv2.imread(path_decrypt)
+    histogram_decrypt=cv2.calcHist([img_decrypt],[0],None,[256],[0,256])
+    #plt.plot(histogram_encrypt)
+    #plt.savefig(os.path.join(app.config['UPLOAD_FOLDER'],'histogram_encrypt.png'))
+    plt.plot(histogram_decrypt)
+    plt.savefig(os.path.join(app.config['UPLOAD_FOLDER'],'histogram_decrypt.png'))
+    return render_template('Histogram.html')
