@@ -1,0 +1,289 @@
+from __future__ import print_function
+import shutil
+from flask import Flask, Response, request, session, url_for, redirect
+import requests
+import socket
+import time
+import json
+import sys
+from flask import Flask, render_template
+from flask import Flask
+#from tkinter import filedialog
+from random import randrange, getrandbits
+import random
+import cv2
+import os,io
+import numpy as np
+import numpy
+import matplotlib.pyplot as plt
+from random import randrange, getrandbits
+import re
+from werkzeug.utils import secure_filename
+import base64
+from kafka import KafkaProducer
+from PIL import Image
+
+app = Flask(__name__)
+UPLOAD_FOLDER="static/image_to_encrypt/"
+app.config['UPLOAD_FOLDER']=UPLOAD_FOLDER
+@app.route('/')
+def index():
+    return render_template('index.html')
+@app.route('/encryption')
+def encryption():
+    return render_template('Encryption.html')
+@app.route('/keyauthenticationexchange')
+def keyauthenticationexchange():
+    HOST = "192.168.198.133"
+    PORT = 65432
+    try:
+        s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    except socket.error:
+        print ("Failed to Create Socket")
+        sys.exit()
+    print("Socket Created")
+    try:
+        remote_ip = socket.gethostbyname(HOST)
+    except socket.gaierror:
+        print("Hostname coult not be resolve. Exiting")
+        sys.exit()
+    s.connect((HOST, PORT))
+    print ('Socket Connected to ' + HOST)
+    #Authentication Process
+    #Receive Challenge Response
+    data = s.recv(1024)
+    print(data)
+    data = json.loads(data.decode())
+    receive=data.get("a")
+    print("Data Challenge Response: ",receive)
+    print("A: ",receive[0])
+    print("B: ",receive[1])
+    print("C: ",receive[2])
+    a=receive[0]
+    b=receive[1]
+    c=receive[2]
+    #Send Challenge Response to Server
+    nilai_challenge_response=a|b*c
+    #nilai_challenge_response=100
+    dump_nilai_CR=json.dumps({"a":nilai_challenge_response})
+    s.send(dump_nilai_CR.encode())
+    print("Nilai Challenge Response to Server: ",nilai_challenge_response)
+    #Response From Server for Challenge Response
+    response = s.recv(2048)
+    response = json.loads(response.decode())
+    receive=response.get("a")
+    print("Receive: ",receive)
+    #respon terima 
+    status="OK"
+    sendrespon=json.dumps({"c":status})
+    s.send(sendrespon.encode())
+    
+    if receive == 0:
+        print("Authentication Failure")
+        respon="Authentication Failure"
+        data=[a,b,c,nilai_challenge_response,respon]
+        return render_template('keyauthenticationexchange.html',data=data)
+        s.close()
+    else:
+        print("Authentication Success")
+        data = s.recv(2048)
+        data = json.loads(data.decode())
+        PublicKey=data.get("b")
+        print("Receive Public Key (E, N): ",PublicKey)
+        print("E: ",PublicKey[0])
+        print("N: ",PublicKey[1])
+        data=[a,b,c,nilai_challenge_response,PublicKey]
+        #return redirect(url_for("image",data=data))
+        s.close()
+    return render_template('keyauthenticationexchange.html',data=data)
+    s.close()
+
+def power(a,d,n):
+  ans=1;
+  while d!=0:
+    if d%2==1:
+      ans=((ans%n)*(a%n))%n
+    a=((a%n)*(a%n))%n
+    d>>=1
+  return ans;
+def power1(x,y,m):
+	ans=1
+	while(y>0):
+		if(y%2==1):
+			ans=(ans*x)%m
+		y=y//2
+		x=(x*x)%m
+	return ans
+@app.route("/image/<data>", methods=['POST'])
+def image(data):
+    start_time=time.time()
+    data=re.findall('[0-9]+',data)
+    image=request.files['file']
+    filename=secure_filename(image.filename)
+    print("Filename: ",filename)
+    image.save(app.config['UPLOAD_FOLDER']+filename)
+    print("sukses")
+    #old=app.config['UPLOAD_FOLDER']+filename
+    #new=app.config['UPLOAD_FOLDER'],'original.png'
+    #os.rename(old,new)
+    #my_img=cv2.imread(app.config['UPLOAD_FOLDER']+filename)
+    my_img=Image.open(app.config['UPLOAD_FOLDER']+filename)
+    rows,cols=my_img.size
+    print("ROWS: ",rows)
+    print("COLS: ",cols)
+    pixels=my_img.load()
+    print("PIXELS: ",pixels)
+    #ukuran gambar
+    path_file=app.config['UPLOAD_FOLDER']
+    input_file=filename
+    size=os.stat(path_file+input_file).st_size
+    def convert_bytes(size):
+        for x in ['bytes', 'KB', 'MB', 'GB', 'TB']:
+            if size < 1024.0:
+                return "%3.1f %s" % (size, x)
+            size /= 1024.0
+        return size
+    image_size=convert_bytes(size)
+    print("Image Size:",image_size)
+    E=int(data[4])
+    print("E: ",E)
+    N=int(data[5])
+    print("N: ",N)
+    enc = [[0 for x in range(rows)] for y in range(cols)]
+    original = [[0 for x in range(rows)] for y in range(cols)]
+    for i in range(cols):
+        for j in range(rows):
+                r,g,b = pixels[j,i]
+                r2=r
+                g2=g
+                b2=b
+                original[i][j]=[r2,g2,b2]
+    for i in range(cols):
+        for j in range(rows):
+            r,g,b=pixels[j,i] 
+            r1=power1(r+10,E,N)
+            g1=power1(g+10,E,N)
+            b1=power1(b+10,E,N)
+            enc[i][j]=[r1,g1,b1]
+    image_resolution=[rows,cols]
+    #=== Save Matrix to File ===#
+    pathtxto=os.path.join(app.config['UPLOAD_FOLDER'],'original.txt')
+    print("file original txt: ",pathtxto)
+    file = open(pathtxto, "w+")
+    content = str(original)
+    file.write(content)
+    file.close()
+    #=== Save Matrix to File ===#
+    pathtxt=os.path.join(app.config['UPLOAD_FOLDER'],'encrypt.txt')
+    print("file encrypt txt: ",pathtxt)
+    file = open(pathtxt, "w+")
+    content = str(enc)
+    file.write(content)
+    file.close()
+    #=== Proses Save Matrik Enkripsi ke Image RGB ===#
+    img = numpy.array(enc,dtype = numpy.uint8)
+    img1 = Image.fromarray(img,"RGB")
+    #img1.save('Encrypt.bmp')
+    img1.save(os.path.join(app.config['UPLOAD_FOLDER'],'image_encrypt.jpg'))
+    #nama File
+    file_name="image_encrypt.jpg"
+    #ukuran gambar enkripsi
+    path_file_e=app.config['UPLOAD_FOLDER']
+    input_file_e=file_name
+    size_e=os.stat(path_file_e+input_file_e).st_size
+    def convert_bytes_e(size_e):
+        for x in ['bytes', 'KB', 'MB', 'GB', 'TB']:
+            if size_e < 1024.0:
+                return "%3.1f %s" % (size_e, x)
+            size_e /= 1024.0
+        return size_e
+    image_size_e=convert_bytes_e(size_e)
+    print("Image size enkripsi: ",image_size_e)
+    #resolusi gambar
+    encrypt_file=os.path.join(app.config['UPLOAD_FOLDER'],'image_encrypt.jpg')
+    encrypted_img= Image.open(encrypt_file)
+    width,height=encrypted_img.size
+    image_resolution_e=[height,width]
+    #Waktu Eksekusi
+    end_time=time.time()
+    interval=end_time-start_time
+    execution_time=interval/60
+    #description_original=[image_resolution,image_size]
+    description_encrypt=[file_name,image_size_e,execution_time]
+    ##Producer Kafka##
+    #data_string=str(data)
+    #print("Data String:",data_string)
+    #print (type(data_string))
+    def serializer(message):
+        return json.dumps(message).encode('utf-8')
+    producer = KafkaProducer(bootstrap_servers=['192.168.198.132:9092'],
+    api_version=(0,10,1),
+    value_serializer=serializer,
+    max_request_size=104857600)
+    topic="senin"
+    ukuran=[rows,cols]
+    #print("data",data)
+    message=[ukuran,content]
+    producer.send(topic,message)
+    producer.flush()
+    print(serializer(message))
+    original=app.config['UPLOAD_FOLDER']+filename
+    ori="original.jpg"
+    new_original=app.config['UPLOAD_FOLDER']+ori
+    print(original,new_original)
+    shutil.copyfile(original,new_original)
+    return render_template("Encryption.html",filename=filename,image_resolution=image_resolution,image_size=image_size,description_encrypt=description_encrypt,image_resolution_e=image_resolution_e)
+    #return redirect(url_for('publish_kafka',data=data))
+
+
+@app.route('/display_original/<filename>')
+def display_image_original(filename):
+	print('display_image_original filename: ' + filename)
+	return redirect(url_for('static', filename='image_to_encrypt/'+filename), code=301)
+@app.route('/histogram')
+def histogram():
+    original="original.jpg"
+    encrypt="image_encrypt.jpg"
+    path_original=app.config['UPLOAD_FOLDER']+original
+    path_encrypt=app.config['UPLOAD_FOLDER']+encrypt
+    img_ori=cv2.imread(path_original)
+    histogram_original=cv2.calcHist([img_ori],[0],None,[256],[0,256])
+    #cv2.imwrite(os.path.join(app.config['UPLOAD_FOLDER'],'histogram_original.jpg'),histogram_original)
+    img_enc=cv2.imread(path_encrypt)
+    histogram_encrypt=cv2.calcHist([img_enc],[0],None,[256],[0,256])
+    #cv2.imwrite(os.path.join(app.config['UPLOAD_FOLDER'],'histogram_encrypt.jpg'),histogram_encrypt)
+    plt.plot(histogram_original)
+    plt.savefig(os.path.join(app.config['UPLOAD_FOLDER'],'histogram_original.png'))
+    plt.plot(histogram_encrypt)
+    plt.savefig(os.path.join(app.config['UPLOAD_FOLDER'],'histogram_encrypt.png'))
+    his_ori="histogram_original.png"
+    his_enc="histogram_encrypt.png"
+    #plt.plot(histogram_original)
+    #plt.show()
+    #plt.savefig('my_cv2hist.png')
+    return render_template('Histogram.html')
+    #return render_template("Histogram.html",his_ori=his_ori,his_enc=his_enc)
+@app.route('/publish_kafka/<data>')
+def publish_kafka(data):
+    receive=data
+    print("Publish Data:",receive)
+    print(type(receive))
+    def serializer(message):
+        return json.dumps(message).encode('utf-8')
+    producer = KafkaProducer(bootstrap_servers=['192.168.254.135:9092'],
+    api_version=(0,10,1),
+    value_serializer=serializer,
+    max_request_size=52428800)
+    topic="senin"
+    path_file=os.path.join(app.config['UPLOAD_FOLDER'],'image_encrypt.jpg')
+    #name_file="image_encrypt.jpeg"
+    #full_file=path_file+name_file
+    with open(path_file, "rb") as img_file:
+        encoded=base64.b64encode(img_file.read())
+    encoded_data=encoded.decode('utf-8')
+    sending=encoded_data
+    message=['image_encrypt.jpg',receive]
+    producer.send(topic,message)
+    producer.flush()
+    print(serializer(message))
+    return ("sukses")
